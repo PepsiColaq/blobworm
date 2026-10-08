@@ -1,5 +1,12 @@
 import { loadState } from './storage.js';
-import { resolveBlobSkin, resolveWormSkin, drawCircledImage } from './skins.js';
+import {
+  resolveBlobSkin,
+  resolveWormSkin,
+  drawCircledImage,
+  loadImage,
+  BLOB_PRESETS,
+  WORM_PRESETS,
+} from './skins.js';
 import { t } from './i18n.js';
 
 const WORLD = 4800;
@@ -94,13 +101,29 @@ export function createGame(hooks = {}) {
   const voicePeers = new Map();
   let localMicOn = false;
   let localVoiceLevel = 0;
+  /** что шлём друзьям для скина */
+  let localSkinMeta = { id: '', src: '', form: 'blob' };
+  let multiplayerSpawn = false;
+  let localPeerId = '';
+  let lastCustomSkinSent = 0;
+
+  function renderScale() {
+    const dpr = window.devicePixelRatio || 1;
+    // на телефоне ограничиваем DPR — иначе 3x canvas = ~30 FPS
+    const mobile = state?.device === 'mobile' || matchMedia('(pointer: coarse)').matches;
+    if (mobile) return Math.min(1.5, dpr);
+    return Math.min(2, dpr);
+  }
 
   function resize() {
-    canvas.width = window.innerWidth * devicePixelRatio;
-    canvas.height = window.innerHeight * devicePixelRatio;
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    const scale = renderScale();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
   }
 
   function toast(msg) {
@@ -367,9 +390,22 @@ export function createGame(hooks = {}) {
     return best || { x: WORLD / 2, y: WORLD / 2 };
   }
 
+  function multiplayerSpawnPos() {
+    // общий кластер в центре мира — друзья спавнятся рядом, а не на разных концах карты
+    let hash = 0;
+    const s = String(localPeerId || state.nick || 'p');
+    for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    const ang = ((hash % 360) / 360) * Math.PI * 2;
+    const rad = 80 + (hash % 140);
+    return {
+      x: clamp(WORLD / 2 + Math.cos(ang) * rad, 200, WORLD - 200),
+      y: clamp(WORLD / 2 + Math.sin(ang) * rad, 200, WORLD - 200),
+    };
+  }
+
   function spawnPlayer() {
     const selfR = state.form === 'worm' ? 18 : massToRadius(42);
-    const { x, y } = findSafeSpawn(selfR, 700);
+    const { x, y } = multiplayerSpawn ? multiplayerSpawnPos() : findSafeSpawn(selfR, 700);
     if (state.form === 'worm') {
       me = makeWorm({
         id: 'me',
@@ -392,6 +428,35 @@ export function createGame(hooks = {}) {
       });
     }
     players.push(me);
+  }
+
+  function buildLocalSkinMeta() {
+    if (state.form === 'worm') {
+      const id = state.wormSkinId || 'nyan';
+      if (id === 'custom' && state.customWorm?.segments?.[0]) {
+        return { id, src: state.customWorm.segments[0], form: 'worm' };
+      }
+      const preset = WORM_PRESETS.find((p) => p.id === id) || WORM_PRESETS[4];
+      return { id, src: preset.src || '', form: 'worm' };
+    }
+    const id = state.blobSkinId || 'doge';
+    if (id === 'custom' && state.customBlob?.dataUrl) {
+      return { id, src: state.customBlob.dataUrl, form: 'blob' };
+    }
+    const preset = BLOB_PRESETS.find((p) => p.id === id) || BLOB_PRESETS[1];
+    return { id, src: preset.src || '', form: 'blob' };
+  }
+
+  async function ensurePeerSkin(rp) {
+    if (!rp?.skinSrc) {
+      rp.skinImg = null;
+      return;
+    }
+    if (rp._skinKey === rp.skinSrc && rp.skinImg) return;
+    rp._skinKey = rp.skinSrc;
+    rp.skinImg = null;
+    const img = await loadImage(rp.skinSrc);
+    if (rp._skinKey === rp.skinSrc) rp.skinImg = img;
   }
 
   function spawnBots(n) {
@@ -1897,37 +1962,43 @@ export function createGame(hooks = {}) {
     drawMinimap();
   }
 
-  /** друзья из комнаты — рисуем их аватар поверх локального мира */
+  /** друзья из комнаты — рисуем их аватар + скин */
   function drawRemotePlayers() {
     const z = cam.zoom;
     const now = performance.now();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     for (const [, rp] of voicePeers) {
       if (!rp || now - rp.t > 2500 || rp.alive === false) continue;
+      if (rp.skinSrc) ensurePeerSkin(rp);
+
       if (rp.form === 'worm' && rp.segs?.length) {
         const rr = Math.max(8, (10 + Math.min(9, rp.segs.length * 0.12)) * z);
         ctx.save();
-        ctx.globalAlpha = 0.92;
+        ctx.globalAlpha = 0.95;
         for (let i = rp.segs.length - 1; i >= 0; i--) {
           const seg = rp.segs[i];
           const s = toScreen(seg.x, seg.y);
-          ctx.fillStyle = rp.color || '#118ab2';
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, rr, 0, Math.PI * 2);
-          ctx.fill();
+          if (rp.skinImg) drawCircledImage(ctx, rp.skinImg, s.x, s.y, rr);
+          else {
+            ctx.fillStyle = rp.color || '#118ab2';
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, rr, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
         const headS = toScreen(rp.segs[0].x, rp.segs[0].y);
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
         ctx.lineWidth = Math.max(2, 2.5 * z);
         ctx.beginPath();
         ctx.arc(headS.x, headS.y, rr + 3, 0, Math.PI * 2);
         ctx.stroke();
-        if (state.settings.showNames) {
-          ctx.fillStyle = '#222';
-          ctx.font = `${Math.max(11, 12 * z)}px Segoe UI, sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText(rp.name || 'Player', headS.x, headS.y - rr - 8);
-        }
+        ctx.fillStyle = '#222';
+        ctx.font = `${Math.max(11, 12 * z)}px Segoe UI, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(rp.name || 'Player', headS.x, headS.y - rr - 8);
         ctx.restore();
+        drawPeerEdgeArrow(rp.segs[0].x, rp.segs[0].y, rp.name, w, h);
         continue;
       }
       const cells = rp.cells?.length
@@ -1938,17 +2009,20 @@ export function createGame(hooks = {}) {
         const r = massToRadius(c.mass || 80) * z;
         const s = toScreen(c.x, c.y);
         ctx.save();
-        ctx.globalAlpha = 0.92;
-        ctx.fillStyle = rp.color || '#9b5de5';
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.lineWidth = Math.max(2, 2.5 * z);
-        ctx.stroke();
+        ctx.globalAlpha = 0.95;
+        if (rp.skinImg) drawCircledImage(ctx, rp.skinImg, s.x, s.y, r);
+        else {
+          ctx.fillStyle = rp.color || '#9b5de5';
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.lineWidth = Math.max(2, 2.5 * z);
+          ctx.stroke();
+        }
         ctx.restore();
       }
-      if (state.settings.showNames && sorted.length) {
+      if (sorted.length) {
         const big = sorted[sorted.length - 1];
         const r = massToRadius(big.mass || 80) * z;
         const s = toScreen(big.x, big.y);
@@ -1956,8 +2030,44 @@ export function createGame(hooks = {}) {
         ctx.font = `${Math.max(11, 13 * z)}px Segoe UI, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText(rp.name || 'Player', s.x, s.y - r - 8);
+        drawPeerEdgeArrow(big.x, big.y, rp.name, w, h);
       }
     }
+  }
+
+  /** стрелка к другу за краем экрана */
+  function drawPeerEdgeArrow(wx, wy, name, sw, sh) {
+    const s = toScreen(wx, wy);
+    if (s.x > 40 && s.x < sw - 40 && s.y > 40 && s.y < sh - 40) return;
+    const cx = sw / 2;
+    const cy = sh / 2;
+    const ang = Math.atan2(s.y - cy, s.x - cx);
+    const pad = 28;
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+    let t = 1e9;
+    if (dx > 0.001) t = Math.min(t, (sw - pad - cx) / dx);
+    if (dx < -0.001) t = Math.min(t, (pad - cx) / dx);
+    if (dy > 0.001) t = Math.min(t, (sh - pad - cy) / dy);
+    if (dy < -0.001) t = Math.min(t, (pad - cy) / dy);
+    const ax = cx + dx * t;
+    const ay = cy + dy * t;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#e76f51';
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-8, 7);
+    ctx.lineTo(-8, -7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.rotate(-ang);
+    ctx.fillStyle = '#e76f51';
+    ctx.font = 'bold 11px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(name || '?', 0, -12);
+    ctx.restore();
   }
 
   function drawMicBadge(wx, wy, level, z) {
@@ -2164,9 +2274,16 @@ export function createGame(hooks = {}) {
   return {
     async start(opts = {}) {
       state = loadState();
+      // в мультиплеере всегда тянем FPS: качество не ниже medium
+      if (opts.multiplayer && state.settings.quality === 'low') {
+        state = { ...state, settings: { ...state.settings, quality: 'medium' } };
+      }
+      multiplayerSpawn = !!opts.multiplayer;
+      localPeerId = String(opts.peerId || '');
       resize();
       blobSkinImg = await resolveBlobSkin(state);
       wormSegImgs = await resolveWormSkin(state);
+      localSkinMeta = buildLocalSkinMeta();
 
       foods = [];
       players = [];
@@ -2192,13 +2309,14 @@ export function createGame(hooks = {}) {
         matchEndsAt = 0;
       }
       document.getElementById('match-end-overlay')?.classList.add('hidden');
-      spawnFood(750, 0.12);
-      spawnViruses(state.settings.quality === 'low' ? 8 : 16);
+      const mobile = state.device === 'mobile' || matchMedia('(pointer: coarse)').matches;
+      spawnFood(mobile ? 520 : 750, 0.12);
+      spawnViruses(state.settings.quality === 'low' ? 8 : mobile ? 10 : 16);
       spawnPlayer();
+      if (multiplayerSpawn) toast('Друзья у центра карты — смотри оранжевые стрелки');
       const botCount = opts.bots != null ? opts.bots : state.settings.bots | 0;
-      spawnBots(botCount);
+      spawnBots(mobile ? Math.min(botCount, 8) : botCount);
 
-      const mobile = state.device === 'mobile';
       document.body.classList.toggle('mobile', mobile);
       document.getElementById('mobile-ui')?.classList.toggle('hidden', !mobile);
       const touch = document.getElementById('touch-controls');
@@ -2291,7 +2409,7 @@ export function createGame(hooks = {}) {
     upsertVoicePeer(id, data) {
       if (!id) return;
       const prev = voicePeers.get(id);
-      voicePeers.set(id, {
+      const next = {
         x: data.x ?? prev?.x ?? 0,
         y: data.y ?? prev?.y ?? 0,
         name: data.name || prev?.name || 'Player',
@@ -2303,13 +2421,19 @@ export function createGame(hooks = {}) {
         segs: Array.isArray(data.segs) ? data.segs : prev?.segs || null,
         score: data.score ?? prev?.score ?? 0,
         alive: data.alive !== false,
+        skinId: data.skinId || prev?.skinId || '',
+        skinSrc: data.skinSrc || prev?.skinSrc || '',
+        skinImg: prev?.skinImg || null,
+        _skinKey: prev?._skinKey || '',
         t: performance.now(),
-      });
+      };
+      voicePeers.set(id, next);
+      if (next.skinSrc && next.skinSrc !== next._skinKey) ensurePeerSkin(next);
     },
     clearVoicePeers() {
       voicePeers.clear();
     },
-    /** снимок для сети — друзья видят твою форму в мире */
+    /** снимок для сети — друзья видят твою форму и скин */
     getVoiceSnapshot() {
       if (!me || !me.alive) return null;
       const h = head(me);
@@ -2323,16 +2447,27 @@ export function createGame(hooks = {}) {
         color: me.color,
         score: scoreOf(me),
         alive: true,
+        skinId: localSkinMeta.id,
       };
+      // пресеты — короткий путь; custom dataURL шлём редко (тяжело)
+      if (localSkinMeta.src) {
+        if (localSkinMeta.src.startsWith('data:')) {
+          const now = performance.now();
+          if (now - lastCustomSkinSent > 2500) {
+            snap.skinSrc = localSkinMeta.src;
+            lastCustomSkinSent = now;
+          }
+        } else {
+          snap.skinSrc = localSkinMeta.src;
+        }
+      }
       if (me.type === 'blob') {
-        // до 8 кусков — хватает для синка
         snap.cells = me.cells.slice(0, 8).map((c) => ({
           x: Math.round(c.x),
           y: Math.round(c.y),
           mass: Math.round(c.mass),
         }));
       } else {
-        // прореживаем сегменты чтобы не забить WS
         const step = Math.max(1, Math.ceil(me.segs.length / 40));
         snap.segs = [];
         for (let i = 0; i < me.segs.length; i += step) {

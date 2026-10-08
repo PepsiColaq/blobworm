@@ -32,7 +32,7 @@ let matchStartedAt = 0;
 let leavingRoomQuiet = false;
 
 const cropModal = createCropModal();
-startMenuBg(document.getElementById('menu-bg'));
+const menuBg = startMenuBg(document.getElementById('menu-bg'));
 
 function applyUiTheme(theme) {
   document.body.classList.toggle('ui-classic', theme === 'classic');
@@ -53,7 +53,16 @@ function show(name) {
   }
   next.classList.add('active');
   currentScreen = name;
-  document.getElementById('menu-bg').style.opacity = name === 'game' ? '0' : '1';
+  const menuCanvas = document.getElementById('menu-bg');
+  if (name === 'game') {
+    menuCanvas.style.opacity = '0';
+    menuCanvas.style.pointerEvents = 'none';
+    menuBg.pause(); // иначе меню ест половину FPS в игре
+  } else {
+    menuCanvas.style.opacity = '1';
+    menuCanvas.style.pointerEvents = '';
+    menuBg.resume();
+  }
   if (name !== 'game') {
     document.getElementById('match-end-overlay')?.classList.add('hidden');
     document.getElementById('pause-overlay')?.classList.add('hidden');
@@ -402,7 +411,7 @@ function syncFullscreenBtn() {
   const btn = document.getElementById('btn-fs');
   if (!btn) return;
   const on = isFullscreen();
-  btn.textContent = on ? '✕' : '⛶';
+  btn.textContent = on ? 'Выйти' : 'Экран';
   btn.title = on ? 'Выйти из полного экрана' : 'Полный экран';
   btn.classList.toggle('on', on);
 }
@@ -500,6 +509,8 @@ const net = createNet({
         segs: p.segs,
         score: p.score,
         alive: p.alive !== false,
+        skinId: p.skinId,
+        skinSrc: p.skinSrc,
       });
     }
   },
@@ -662,6 +673,8 @@ async function startMatch({ bots, voice: useVoice, timed = false, endsAt } = {})
     timed: !!timed,
     endsAt: timed ? undefined : endsAt,
     matchMs: 30 * 60 * 1000,
+    multiplayer: !!currentRoom,
+    peerId: net.getId?.() || '',
   });
   game.resume();
   if (formChoice === 'random') patchState({ form: 'random' });

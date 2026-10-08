@@ -206,9 +206,20 @@ export function startMenuBg(canvas) {
   raf = requestAnimationFrame(frame);
 
   return {
+    pause() {
+      running = false;
+      cancelAnimationFrame(raf);
+      raf = 0;
+    },
+    resume() {
+      if (running) return;
+      running = true;
+      raf = requestAnimationFrame(frame);
+    },
     stop() {
       running = false;
       cancelAnimationFrame(raf);
+      raf = 0;
       window.removeEventListener('pointerdown', onPointer, true);
     },
   };
