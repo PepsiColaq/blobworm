@@ -6,7 +6,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#1fa896" />
   <title>BlobWorm</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -366,8 +369,10 @@
         <button type="button" id="btn-eject">Eject</button>
         <button type="button" id="btn-action" title="Pulse — 4с защита большого куска, КД 25с">Pulse</button>
       </div>
-      <button type="button" id="btn-fs" title="Полный экран">⛶</button>
+      <button type="button" id="btn-fs" title="Полный экран" aria-label="Полный экран">⛶</button>
       <button type="button" id="btn-pause" title="Меню">☰</button>
+      <div id="fs-hint" class="fs-hint hidden"></div>
+      <div id="fs-scroll-spacer" aria-hidden="true"></div>
       <div id="pause-overlay" class="hidden">
         <div class="menu-card">
           <h2 data-i18n="pause">Пауза</h2>

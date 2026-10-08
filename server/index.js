@@ -20,7 +20,17 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, rooms: rooms.size, uptime: process.uptime() | 0 });
 });
 
-app.use(express.static(ROOT, { index: 'index.html', extensions: ['html'] }));
+app.use(
+  express.static(ROOT, {
+    index: 'index.html',
+    extensions: ['html'],
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.webmanifest')) {
+        res.setHeader('Content-Type', 'application/manifest+json');
+      }
+    },
+  }),
+);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });

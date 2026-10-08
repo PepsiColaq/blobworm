@@ -268,22 +268,132 @@ function applyMobileLayout() {
   requestAnimationFrame(placeHudStack);
 }
 
-function isFullscreen() {
+function isNativeFullscreen() {
   return !!(document.fullscreenElement || document.webkitFullscreenElement);
 }
 
+function isCssImmersive() {
+  return document.documentElement.classList.contains('immersive');
+}
+
+function isFullscreen() {
+  return isNativeFullscreen() || isCssImmersive();
+}
+
+function isIosLike() {
+  const ua = navigator.userAgent || '';
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function canNativeFullscreen() {
+  const el = document.documentElement;
+  return typeof (el.requestFullscreen || el.webkitRequestFullscreen) === 'function' && !isIosLike();
+}
+
+function showFsHint(text, ms = 4200) {
+  const el = document.getElementById('fs-hint');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('hidden');
+  clearTimeout(showFsHint._t);
+  showFsHint._t = setTimeout(() => el.classList.add('hidden'), ms);
+}
+
+function applyVisualViewportLock() {
+  const vv = window.visualViewport;
+  const h = vv?.height || window.innerHeight;
+  const top = vv?.offsetTop || 0;
+  document.documentElement.style.setProperty('--vvh', `${h}px`);
+  document.documentElement.style.setProperty('--vvtop', `${top}px`);
+  window.dispatchEvent(new Event('resize'));
+}
+
+function enterCssImmersive() {
+  const spacer = document.getElementById('fs-scroll-spacer');
+  document.documentElement.classList.add('immersive');
+  document.body.classList.add('immersive');
+  if (spacer) spacer.classList.add('on');
+  // жест: чуть скроллим — Chrome/Safari прячут адресную строку
+  const prev = document.documentElement.style.overflow;
+  document.documentElement.style.overflow = 'auto';
+  document.body.style.overflow = 'auto';
+  window.scrollTo(0, 1);
+  requestAnimationFrame(() => {
+    window.scrollTo(0, Math.min(80, (spacer?.offsetHeight || 120) / 3));
+    applyVisualViewportLock();
+    setTimeout(() => {
+      document.documentElement.style.overflow = prev || '';
+      document.body.style.overflow = 'hidden';
+      applyVisualViewportLock();
+    }, 120);
+  });
+  if (!enterCssImmersive._bound) {
+    enterCssImmersive._bound = true;
+    window.visualViewport?.addEventListener('resize', applyVisualViewportLock);
+    window.visualViewport?.addEventListener('scroll', applyVisualViewportLock);
+  }
+}
+
+function exitCssImmersive() {
+  document.documentElement.classList.remove('immersive');
+  document.body.classList.remove('immersive');
+  document.getElementById('fs-scroll-spacer')?.classList.remove('on');
+  document.documentElement.style.removeProperty('--vvh');
+  document.documentElement.style.removeProperty('--vvtop');
+  window.scrollTo(0, 0);
+  window.dispatchEvent(new Event('resize'));
+}
+
 async function toggleFullscreen() {
-  try {
-    if (isFullscreen()) {
+  // уже в нативном FS — выходим
+  if (isNativeFullscreen()) {
+    try {
       if (document.exitFullscreen) await document.exitFullscreen();
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-    } else {
-      const root = document.documentElement;
-      if (root.requestFullscreen) await root.requestFullscreen({ navigationUI: 'hide' });
-      else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* iOS Safari без поддержки — ок */
+    exitCssImmersive();
+    syncFullscreenBtn();
+    return;
+  }
+  // CSS-иммерсив — выходим
+  if (isCssImmersive()) {
+    exitCssImmersive();
+    syncFullscreenBtn();
+    return;
+  }
+
+  let nativeOk = false;
+  if (canNativeFullscreen()) {
+    const root = document.documentElement;
+    try {
+      if (root.requestFullscreen) {
+        await root.requestFullscreen();
+        nativeOk = true;
+      } else if (root.webkitRequestFullscreen) {
+        root.webkitRequestFullscreen();
+        nativeOk = true;
+      }
+    } catch {
+      try {
+        if (root.requestFullscreen) {
+          await root.requestFullscreen({ navigationUI: 'hide' });
+          nativeOk = true;
+        }
+      } catch {
+        nativeOk = false;
+      }
+    }
+  }
+
+  if (!nativeOk) {
+    enterCssImmersive();
+    if (isIosLike()) {
+      showFsHint('На iPhone лучше: Поделиться → На экран «Домой», потом открыть иконку BlobWorm');
+    } else {
+      showFsHint('Режим без строки браузера. Если полоска осталась — ещё раз нажми ⛶');
+    }
   }
   syncFullscreenBtn();
 }
@@ -292,7 +402,7 @@ function syncFullscreenBtn() {
   const btn = document.getElementById('btn-fs');
   if (!btn) return;
   const on = isFullscreen();
-  btn.textContent = on ? '⛶' : '⛶';
+  btn.textContent = on ? '✕' : '⛶';
   btn.title = on ? 'Выйти из полного экрана' : 'Полный экран';
   btn.classList.toggle('on', on);
 }
