@@ -2369,11 +2369,11 @@ export function createGame(hooks = {}) {
       const len = Math.hypot(nx, ny) || 1;
       const m = clamp(mag == null ? 1 : mag, 0, 1);
       if (m < 0.12) {
-        joystickAim = null;
+        // сохраняем прежний курс, только гасим силу — не сбрасываем в null
+        if (joystickAim) joystickAim = { ...joystickAim, mag: 0 };
         return;
       }
       joystickAim = { x: nx / len, y: ny / len, mag: m };
-      pointer.active = true;
     },
     clearJoystickAim() {
       joystickAim = null;

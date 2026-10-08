@@ -987,6 +987,8 @@ function setupJoystick() {
   if (!base || !knob) return;
   let active = false;
   let pid = null;
+  /** последний нормальный наклон — после отпускания едем туда же */
+  let lastAim = null;
 
   const setKnob = (dx, dy, max) => {
     const d = Math.hypot(dx, dy) || 1;
@@ -995,8 +997,11 @@ function setupJoystick() {
     const ny = (dy / d) * clamped;
     const mag = Math.min(1, clamped / max);
     knob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
-    if (clamped > 8) game.setJoystickAim(nx / max, ny / max, mag);
-    else game.clearJoystickAim();
+    if (clamped > 8) {
+      lastAim = { x: nx / max, y: ny / max, mag };
+      game.setJoystickAim(lastAim.x, lastAim.y, lastAim.mag);
+    }
+    // у центра стика не сбрасываем курс — иначе рывок в сторону pointer
   };
 
   const onStart = (e) => {
@@ -1007,9 +1012,11 @@ function setupJoystick() {
   };
   const onMove = (e) => {
     if (!active) return;
-    const t = e.changedTouches
-      ? [...e.changedTouches].find((x) => x.identifier === pid) || e.touches[0]
-      : e;
+    let t = e;
+    if (e.changedTouches || e.touches) {
+      const list = e.touches?.length ? e.touches : e.changedTouches;
+      t = [...list].find((x) => x.identifier === pid) || list[0];
+    }
     if (!t) return;
     const rect = base.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
@@ -1017,16 +1024,22 @@ function setupJoystick() {
     setKnob(t.clientX - cx, t.clientY - cy, rect.width * 0.35);
     e.preventDefault?.();
   };
-  const onEnd = () => {
+  const onEnd = (e) => {
+    if (e?.changedTouches && pid != null && pid !== 'mouse') {
+      const mine = [...e.changedTouches].some((x) => x.identifier === pid);
+      if (!mine) return;
+    }
     active = false;
     pid = null;
     knob.style.transform = 'translate(-50%, -50%)';
-    game.clearJoystickAim();
+    // продолжаем в сторону последнего наклона (не clear — иначе уезжает в угол экрана)
+    if (lastAim) game.setJoystickAim(lastAim.x, lastAim.y, 1);
   };
 
   base.addEventListener('touchstart', onStart, { passive: false });
   base.addEventListener('touchmove', onMove, { passive: false });
   base.addEventListener('touchend', onEnd);
+  base.addEventListener('touchcancel', onEnd);
   base.addEventListener('mousedown', onStart);
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onEnd);
