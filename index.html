@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>BlobWorm</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <canvas id="menu-bg" aria-hidden="true"></canvas>
+  <div id="app">
+    <!-- AUTH -->
+    <section id="screen-auth" class="screen active">
+      <div class="menu-card">
+        <h1 class="logo">Blob<span>Worm</span></h1>
+        <p class="tagline">врывайся в игру дружище и стань самым большим!</p>
+        <div class="tabs">
+          <button type="button" class="tab active" data-auth-tab="login">Вход</button>
+          <button type="button" class="tab" data-auth-tab="register">Регистрация</button>
+        </div>
+        <label class="field"><span>Имя пользователя</span><input id="auth-user" maxlength="16" autocomplete="username" /></label>
+        <label class="field"><span>Пароль</span><input id="auth-pass" type="password" maxlength="64" autocomplete="current-password" /></label>
+        <p id="auth-error" class="error"></p>
+        <button class="btn primary" id="btn-auth-submit">Войти</button>
+      </div>
+    </section>
+
+    <!-- DEVICE -->
+    <section id="screen-device" class="screen">
+      <div class="menu-card">
+        <h2>На чём играешь?</h2>
+        <p class="hint">Потом можно сменить в настройках</p>
+        <button class="btn primary" id="btn-device-pc">ПК (мышь + клавиатура)</button>
+        <button class="btn primary" id="btn-device-mobile">Телефон (джойстик)</button>
+      </div>
+    </section>
+
+    <!-- MAIN MENU -->
+    <section id="screen-menu" class="screen">
+      <div class="menu-card">
+        <h1 class="logo">Blob<span>Worm</span></h1>
+        <p class="tagline">врывайся в игру дружище и стань самым большим!</p>
+        <p class="hello">привет, <span id="menu-user">игрок</span></p>
+        <label class="field">
+          <span>Ник в игре</span>
+          <input id="input-nick" maxlength="16" placeholder="Player" />
+        </label>
+        <div class="form-row">
+          <label class="field grow">
+            <span>Форма</span>
+            <select id="input-form">
+              <option value="random">Случайно 🎲</option>
+              <option value="blob">Шар</option>
+              <option value="worm">Червь</option>
+            </select>
+          </label>
+        </div>
+        <button class="btn primary" id="btn-play">Играть</button>
+        <div class="btn-row">
+          <button class="btn" id="btn-skins">Скины</button>
+          <button class="btn" id="btn-settings">Настройки</button>
+        </div>
+        <button class="btn ghost" id="btn-logout">Выйти из аккаунта</button>
+      </div>
+    </section>
+
+    <!-- MODE SELECT -->
+    <section id="screen-mode" class="screen">
+      <div class="menu-card wide">
+        <h2>Режим игры</h2>
+        <div class="mode-grid">
+          <button class="mode-card" id="btn-mode-public">
+            <strong>Обычная</strong>
+            <span>Публичная арена, боты, все попало</span>
+          </button>
+          <button class="mode-card" id="btn-mode-private">
+            <strong>Приватная</strong>
+            <span>Комната по коду, пароль, свои боты</span>
+          </button>
+        </div>
+        <button class="btn" id="btn-mode-back">Назад</button>
+      </div>
+    </section>
+
+    <!-- PRIVATE LOBBY -->
+    <section id="screen-private" class="screen">
+      <div class="menu-card wide">
+        <h2>Приватные матчи</h2>
+        <div class="btn-row">
+          <button class="btn primary" id="btn-room-create-open">Создать комнату</button>
+          <button class="btn" id="btn-room-search">Поиск матчей</button>
+        </div>
+        <div id="room-create-panel" class="panel hidden">
+          <h3>Создать</h3>
+          <label class="field"><span>Код комнаты (буквы/цифры, пусто = авто)</span><input id="room-code-create" maxlength="8" placeholder="например BARSIK" /></label>
+          <label class="field"><span>Пароль комнаты (можно пусто)</span><input id="room-pass-create" maxlength="32" type="password" /></label>
+          <label class="field"><span>Ботов: <b id="room-bots-label">8</b></span><input type="range" id="room-bots" min="0" max="20" value="8" /></label>
+          <button class="btn primary" id="btn-room-create">Создать</button>
+        </div>
+        <div id="room-join-panel" class="panel">
+          <h3>Войти по коду</h3>
+          <label class="field"><span>Код</span><input id="room-code-join" maxlength="8" /></label>
+          <label class="field"><span>Пароль</span><input id="room-pass-join" type="password" maxlength="32" /></label>
+          <button class="btn primary" id="btn-room-join">Войти</button>
+        </div>
+        <div id="room-list-panel" class="panel hidden">
+          <h3>Открытые комнаты</h3>
+          <div id="room-list" class="room-list"></div>
+          <button class="btn" id="btn-room-refresh">Обновить</button>
+        </div>
+        <p id="room-error" class="error"></p>
+        <button class="btn" id="btn-private-back">Назад</button>
+      </div>
+    </section>
+
+    <!-- ROOM WAIT -->
+    <section id="screen-room" class="screen">
+      <div class="menu-card wide">
+        <h2>Комната <span id="room-code-view"></span></h2>
+        <p class="hint">Ботов: <span id="room-bots-view">0</span> · <span id="room-pass-view"></span></p>
+        <div id="room-peers" class="peers"></div>
+        <div class="btn-row">
+          <button class="btn" id="btn-voice-toggle">🎤 Голос: выкл</button>
+          <button class="btn" id="btn-voice-mute">🔇 Мут</button>
+        </div>
+        <button class="btn primary" id="btn-room-start">Начать игру (хост)</button>
+        <button class="btn" id="btn-room-leave">Выйти из комнаты</button>
+      </div>
+    </section>
+
+    <!-- LAYOUT EDITOR -->
+    <section id="screen-layout" class="screen">
+      <div class="layout-editor">
+        <div class="layout-toolbar">
+          <h2 data-i18n="layout_title">Расположение кнопок</h2>
+          <p class="hint" data-i18n="layout_hint">Тащи пальцем или мышью · потом «Сохранить»</p>
+          <div class="btn-row">
+            <button class="btn" id="btn-layout-cancel" data-i18n="cancel">Отмена</button>
+            <button class="btn" id="btn-layout-reset2" data-i18n="reset">Сброс</button>
+            <button class="btn primary" id="btn-layout-save" data-i18n="save">Сохранить</button>
+          </div>
+          <div id="layout-size-panel" class="layout-size-panel hidden">
+            <label class="field">
+              <span id="layout-size-label">Размер</span>
+              <input type="range" id="layout-size-range" min="60" max="180" value="100" />
+              <b id="layout-size-value">100</b>
+            </label>
+          </div>
+        </div>
+        <div id="layout-stage">
+          <div class="layout-preview-label" data-i18n="preview">Превью экрана</div>
+          <div id="layout-map" class="layout-item layout-map" data-slot="map" data-mode="topleft">
+            <span data-i18n="minimap_item">Карта</span>
+          </div>
+          <div id="layout-hud" class="layout-item layout-hud" data-slot="hud" data-mode="topleft">
+            <span>Счёт / время / mic</span>
+          </div>
+          <div id="layout-joy" class="layout-item" data-slot="joy">
+            <div class="layout-joy-base"><div class="layout-joy-knob"></div></div>
+            <span data-i18n="joystick">Джойстик</span>
+          </div>
+          <button type="button" id="layout-a" class="layout-item abil" data-slot="a">Split</button>
+          <button type="button" id="layout-b" class="layout-item abil" data-slot="b">Eject</button>
+          <button type="button" id="layout-c" class="layout-item abil" data-slot="c">Pulse</button>
+          <button type="button" id="layout-mic" class="layout-item abil mic-toggle" data-slot="mic">🎤</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="screen-settings" class="screen">
+      <div class="menu-card wide settings-card">
+        <h2 data-i18n="settings">Настройки</h2>
+        <div class="settings-grid">
+          <div class="settings-block">
+            <h3 data-i18n="settings">Основные</h3>
+            <label class="field">
+              <span data-i18n="language">Язык</span>
+              <select id="set-lang">
+                <option value="ru">Русский</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <label class="field">
+              <span data-i18n="device">Устройство</span>
+              <select id="set-device">
+                <option value="pc" data-i18n="pc">ПК</option>
+                <option value="mobile" data-i18n="mobile">Телефон</option>
+              </select>
+            </label>
+            <label class="field check"><input type="checkbox" id="set-sound" checked /><span>Звук</span></label>
+            <label class="field check"><input type="checkbox" id="set-voice" checked /><span>Голосовой чат по умолчанию</span></label>
+            <label class="field">
+              <span>Микрофон</span>
+              <select id="set-mic-device"><option value="">По умолчанию</option></select>
+            </label>
+            <label class="field">
+              <span>Клавиша микрофона (ПК)</span>
+              <button type="button" class="btn" id="btn-mic-key">V</button>
+            </label>
+            <label class="field"><span>Чувствительность</span><input type="range" id="set-sensitivity" min="0.5" max="2" step="0.1" value="1" /></label>
+            <label class="field">
+              <span>Качество</span>
+              <select id="set-quality">
+                <option value="high">Высокое</option>
+                <option value="medium" selected>Среднее</option>
+                <option value="low">Низкое</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-block">
+            <h3>Игра</h3>
+            <label class="field"><span>Ботов (обычная): <b id="set-bots-label">10</b></span><input type="range" id="set-bots" min="4" max="20" step="1" value="10" /></label>
+            <label class="field check"><input type="checkbox" id="set-show-names" checked /><span>Показывать ники</span></label>
+            <label class="field">
+              <span>Миникарта</span>
+              <select id="set-minimap-side">
+                <option value="left">Сверху слева</option>
+                <option value="right">Сверху справа</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Вид интерфейса</span>
+              <select id="set-ui-theme">
+                <option value="polish">Новый (приятный)</option>
+                <option value="classic">Классический (бэкап)</option>
+              </select>
+            </label>
+          </div>
+          <div class="settings-block">
+            <h3>Телефон</h3>
+            <label class="field"><span>Размер джойстика: <b id="set-joy-label">120</b></span><input type="range" id="set-joystick" min="80" max="180" value="120" /></label>
+            <label class="field"><span>Прозрачность джойстика</span><input type="range" id="set-joy-opacity" min="0.25" max="0.9" step="0.05" value="0.55" /></label>
+            <button type="button" class="btn primary" id="btn-layout-open">Расположение кнопок…</button>
+            <button type="button" class="btn" id="btn-layout-reset">Сбросить расположение</button>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="btn-settings-back">Назад</button>
+          <button class="btn primary" id="btn-settings-save">Сохранить</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SKINS -->
+    <section id="screen-skins" class="screen">
+      <div class="menu-card wide">
+        <h2>Скины</h2>
+        <div class="btn-row">
+          <button class="btn primary" id="btn-skin-blob">Шар</button>
+          <button class="btn primary" id="btn-skin-worm">Червь</button>
+        </div>
+        <button class="btn" id="btn-skins-back">Назад</button>
+      </div>
+    </section>
+
+    <section id="screen-blob-skin" class="screen">
+      <div class="menu-card wide editor-card">
+        <h2>Скин шара</h2>
+        <div class="preset-grid" id="blob-presets"></div>
+        <div class="editor-layout">
+          <canvas id="blob-paint" width="256" height="256"></canvas>
+          <div class="editor-tools">
+            <label class="field"><span>Кисть</span><input type="color" id="blob-color" value="#ff4d6d" /></label>
+            <label class="field"><span>Толщина</span><input type="range" id="blob-size" min="2" max="40" value="14" /></label>
+            <label class="field"><span>База</span><input type="color" id="blob-base" value="#4cc9f0" /></label>
+            <div class="btn-row">
+              <button class="btn" id="blob-clear">Очистить</button>
+              <button class="btn" id="blob-fill">Залить</button>
+            </div>
+            <label class="btn file-btn">
+              📷 Фото из галереи
+              <input type="file" id="blob-photo" accept="image/*" hidden />
+            </label>
+            <button class="btn primary" id="blob-save">Сохранить</button>
+          </div>
+        </div>
+        <button class="btn" id="btn-blob-skin-back">Назад</button>
+      </div>
+    </section>
+
+    <section id="screen-worm-skin" class="screen">
+      <div class="menu-card wide editor-card">
+        <h2>Скин червя</h2>
+        <p class="hint">Рисуй или вставь фото на каждый сегмент</p>
+        <div class="preset-grid" id="worm-presets"></div>
+        <div class="segment-tabs" id="worm-seg-tabs"></div>
+        <div class="editor-layout">
+          <canvas id="worm-paint" width="160" height="160"></canvas>
+          <div class="editor-tools">
+            <label class="field"><span>Кисть</span><input type="color" id="worm-color" value="#ffd60a" /></label>
+            <label class="field"><span>Толщина</span><input type="range" id="worm-size" min="2" max="28" value="10" /></label>
+            <div class="btn-row">
+              <button class="btn" id="worm-clear-seg">Очистить</button>
+              <button class="btn" id="worm-copy-all">На все</button>
+            </div>
+            <label class="btn file-btn">
+              📷 Фото на сегмент
+              <input type="file" id="worm-photo" accept="image/*" hidden />
+            </label>
+            <button class="btn primary" id="worm-save">Сохранить</button>
+            <div class="worm-preview-wrap"><canvas id="worm-preview" width="320" height="64"></canvas></div>
+          </div>
+        </div>
+        <button class="btn" id="btn-worm-skin-back">Назад</button>
+      </div>
+    </section>
+
+    <!-- CROP MODAL -->
+    <div id="crop-overlay" class="crop-overlay hidden">
+      <div class="crop-card">
+        <h3 id="crop-title">Кадрирование</h3>
+        <p class="hint">Двигай фото · кружок = область скина</p>
+        <canvas id="crop-canvas" width="360" height="360"></canvas>
+        <label class="field"><span>Масштаб</span><input type="range" id="crop-zoom" min="50" max="250" value="100" /></label>
+        <div class="btn-row">
+          <button class="btn" id="crop-cancel">Отмена</button>
+          <button class="btn primary" id="crop-apply">Готово</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GAME -->
+    <section id="screen-game" class="screen">
+      <canvas id="game"></canvas>
+      <canvas id="minimap" width="140" height="140"></canvas>
+      <div id="hud">
+        <div id="hud-left-stack">
+          <div id="hud-score-row">
+            <div id="hud-score">0</div>
+            <div id="hud-timer" class="hidden">30:00</div>
+            <button type="button" id="btn-voice-ingame" class="hud-voice hidden" title="Микрофон (V)">🎤 V</button>
+          </div>
+          <div id="hud-hint"></div>
+          <div id="hud-inviz" class="hidden"></div>
+        </div>
+        <div id="hud-toast"></div>
+        <div id="leaderboard">
+          <div class="lb-head">
+            <span class="lb-title" data-i18n="leaderboard">Топ</span>
+            <button type="button" id="lb-toggle" class="lb-toggle" title="Свернуть / развернуть">▾</button>
+          </div>
+          <ol id="lb-list"></ol>
+          <div id="lb-you" class="lb-you hidden"></div>
+        </div>
+        <div id="mic-status" class="mic-status hidden" data-i18n="mic_on">МИКРОФОН ВКЛ</div>
+      </div>
+
+      <div id="mobile-ui" class="hidden">
+        <div id="joystick" class="mob-slot" data-slot="joy">
+          <div id="joystick-base"><div id="joystick-knob"></div></div>
+        </div>
+        <button type="button" id="mob-a" class="abil mob-slot" data-slot="a">A</button>
+        <button type="button" id="mob-b" class="abil mob-slot" data-slot="b">B</button>
+        <button type="button" id="mob-c" class="abil mob-slot" data-slot="c">C</button>
+        <button type="button" id="mob-mic" class="abil mic-toggle mob-slot" data-slot="mic" title="Микрофон">🎤</button>
+      </div>
+
+      <div id="touch-controls" class="hidden">
+        <button type="button" id="btn-split">Split</button>
+        <button type="button" id="btn-eject">Eject</button>
+        <button type="button" id="btn-action" title="Pulse — 4с защита большого куска, КД 25с">Pulse</button>
+      </div>
+      <button type="button" id="btn-pause" title="Меню">☰</button>
+      <div id="pause-overlay" class="hidden">
+        <div class="menu-card">
+          <h2 data-i18n="pause">Пауза</h2>
+          <button class="btn primary" id="btn-resume" data-i18n="resume">Продолжить</button>
+          <button class="btn" id="btn-quit" data-i18n="quit">В меню</button>
+        </div>
+      </div>
+      <div id="death-overlay" class="hidden">
+        <div class="menu-card">
+          <h2 data-i18n="eaten">Тебя съели</h2>
+          <p id="death-score"></p>
+          <button class="btn primary" id="btn-respawn" data-i18n="again">Снова</button>
+          <button class="btn" id="btn-death-menu" data-i18n="quit">В меню</button>
+        </div>
+      </div>
+      <div id="match-end-overlay" class="hidden">
+        <div class="menu-card">
+          <h2 data-i18n="match_end">Матч окончен</h2>
+          <p id="match-end-reason" data-i18n="time_up">Время вышло (30 мин)</p>
+          <p id="match-end-score"></p>
+          <button class="btn primary" id="btn-match-end-menu" data-i18n="quit">В меню</button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
