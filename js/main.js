@@ -463,7 +463,7 @@ const net = createNet({
         return;
       }
       startMatch({
-        bots: msg.room?.bots ?? loadState().settings.bots,
+        bots: 0,
         voice: true,
         timed: true,
       });
@@ -480,8 +480,8 @@ const net = createNet({
       }
     }
     if (msg.type === 'room:start') {
-      pendingBots = msg.bots;
-      startMatch({ bots: msg.bots, voice: true, timed: false });
+      pendingBots = 0;
+      startMatch({ bots: 0, voice: true, timed: false });
     }
     if (msg.type === 'room:left') {
       currentRoom = null;
@@ -523,15 +523,16 @@ const voice = createVoiceChat({
 });
 
 function renderPeers(peers) {
+  lastRoomPeers = peers || [];
   const box = document.getElementById('room-peers');
   if (box) {
-    box.innerHTML = peers.map((p) => `<span class="peer-chip">${p.name}</span>`).join('');
+    box.innerHTML = lastRoomPeers.map((p) => `<span class="peer-chip">${p.name}</span>`).join('');
   }
   const startBtn = document.getElementById('btn-room-start');
   if (startBtn) startBtn.style.display = youAreHost ? '' : 'none';
   // голос не блокирует игровой цикл
   Promise.resolve()
-    .then(() => voice.syncPeers(peers))
+    .then(() => voice.syncPeers(lastRoomPeers))
     .catch((e) => console.warn('voice peers', e));
 }
 
@@ -603,6 +604,10 @@ async function toggleMicLive() {
   } else {
     voice.setMuted(!voice.isMuted());
   }
+  voice.unlockAudio();
+  if (lastRoomPeers.length) {
+    voice.syncPeers(lastRoomPeers).catch(() => {});
+  }
   updateVoiceButtons();
   syncLocalVoiceVisual();
 }
@@ -612,8 +617,9 @@ function syncLocalVoiceVisual() {
   game.setLocalVoice(live, live ? voice.getLocalLevel() : 0);
 }
 
-/** голос: иконка + рассылка позиции; слышно только кто в FOV */
+/** голос + сеть: чаще шлём позицию (меньше «телепортов») */
 let voiceTickTimer = 0;
+let lastRoomPeers = [];
 function startVoiceGameplayLoop() {
   if (voiceTickTimer) clearInterval(voiceTickTimer);
   voiceTickTimer = setInterval(() => {
@@ -627,24 +633,26 @@ function startVoiceGameplayLoop() {
       net.sendState(snap);
     }
 
-    // пространственный звук: слышим только видимых
+    // в комнате всегда слышим друзей (FOV раньше глушил ГС)
+    const inRoom = !!currentRoom;
     for (const id of voice.getPeerIds()) {
       const vp = game.getVoicePeer(id);
-      if (!vp) {
+      if (inRoom) {
+        voice.setPeerAudible(id, true);
+      } else if (!vp) {
         voice.setPeerAudible(id, false);
         continue;
+      } else {
+        voice.setPeerAudible(id, game.isWorldPointVisible(vp.x, vp.y));
       }
-      const see = game.isWorldPointVisible(vp.x, vp.y);
-      voice.setPeerAudible(id, see);
-      // подтянуть уровень анимации с реального аудио если есть
-      if (see && vp.micOn) {
+      if (vp?.micOn) {
         const rl = voice.getRemoteLevel(id);
         if (rl > (vp.level || 0)) {
           game.upsertVoicePeer(id, { ...vp, level: rl });
         }
       }
     }
-  }, 80);
+  }, 45);
 }
 
 async function ensureNet() {
@@ -667,13 +675,15 @@ async function startMatch({ bots, voice: useVoice, timed = false, endsAt } = {})
   document.getElementById('pause-overlay')?.classList.add('hidden');
   document.getElementById('death-overlay')?.classList.add('hidden');
   matchStartedAt = Date.now();
-  const botCount = bots != null ? bots : loadState().settings.bots;
+  const inRoom = !!currentRoom;
+  // в комнате боты локальные у каждого — из‑за этого «разный мир/топ». Отключаем.
+  const botCount = inRoom ? 0 : bots != null ? bots : loadState().settings.bots;
   await game.start({
     bots: botCount,
     timed: !!timed,
     endsAt: timed ? undefined : endsAt,
     matchMs: 30 * 60 * 1000,
-    multiplayer: !!currentRoom,
+    multiplayer: inRoom,
     peerId: net.getId?.() || '',
   });
   game.resume();
@@ -686,12 +696,14 @@ async function startMatch({ bots, voice: useVoice, timed = false, endsAt } = {})
   if (loadState().device === 'mobile' || matchMedia('(pointer: coarse)').matches) {
     toggleFullscreen().catch(() => {});
   }
-  // микрофон в фоне — не ждём getUserMedia, чтобы не стопорить матч
-  if (useVoice || loadState().settings.voiceChat) {
+  // голос: сразу связываем пиров; микрофон на муте до нажатия 🎤
+  if (useVoice || loadState().settings.voiceChat || inRoom) {
     voice
       .enable()
-      .then(() => {
+      .then(async () => {
         voice.setMuted(true);
+        voice.unlockAudio();
+        if (lastRoomPeers.length) await voice.syncPeers(lastRoomPeers);
         updateVoiceButtons();
         syncLocalVoiceVisual();
       })

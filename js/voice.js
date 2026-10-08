@@ -93,10 +93,12 @@ export function createVoiceChat({ net, getLocalId, getDeviceId }) {
       el.id = 'voice-audio-' + id;
       el.autoplay = true;
       el.playsInline = true;
-      el.volume = 0; // по умолчанию тихо, пока не в FOV
+      el.setAttribute('playsinline', 'true');
+      el.volume = 1;
       document.body.appendChild(el);
     }
     el.srcObject = stream;
+    el.play?.().catch(() => {});
     const entry = peers.get(id);
     if (entry) {
       entry.stream = stream;
@@ -108,6 +110,8 @@ export function createVoiceChat({ net, getLocalId, getDeviceId }) {
       } catch {
         /* ignore */
       }
+      // в комнате по умолчанию слышим (FOV больше не глушит)
+      entry.audible = true;
       applyAudible(id);
     }
   }
@@ -117,12 +121,27 @@ export function createVoiceChat({ net, getLocalId, getDeviceId }) {
     if (!entry?.el) return;
     entry.el.volume = entry.audible ? 1 : 0;
     entry.el.muted = !entry.audible;
+    if (entry.audible) entry.el.play?.().catch(() => {});
   }
 
   async function createPeer(remoteId, polite) {
     if (peers.has(remoteId)) return peers.get(remoteId);
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+      ],
     });
     const entry = {
       pc,
@@ -131,7 +150,7 @@ export function createVoiceChat({ net, getLocalId, getDeviceId }) {
       el: null,
       analyser: null,
       data: null,
-      audible: false,
+      audible: true,
     };
     peers.set(remoteId, entry);
 
@@ -258,14 +277,19 @@ export function createVoiceChat({ net, getLocalId, getDeviceId }) {
       if (!e) return 0;
       return readLevel(e.analyser, e.data);
     },
-    /** слышимость: только если говорящий в зоне видимости */
+    /** слышимость удалённого (в мультиплеере лучше всегда true) */
     setPeerAudible(id, audible) {
       const e = peers.get(id);
       if (!e) return;
       e.audible = !!audible;
-      if (e.el) {
-        e.el.volume = e.audible ? 1 : 0;
-        e.el.muted = !e.audible;
+      applyAudible(id);
+    },
+    /** включить звук у всех пиров (после жеста пользователя) */
+    unlockAudio() {
+      ensureAudioCtx();
+      for (const [id, e] of peers) {
+        e.audible = true;
+        applyAudible(id);
       }
     },
     getPeerIds: () => [...peers.keys()],

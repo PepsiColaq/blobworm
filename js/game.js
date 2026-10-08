@@ -459,6 +459,50 @@ export function createGame(hooks = {}) {
     if (rp._skinKey === rp.skinSrc) rp.skinImg = img;
   }
 
+  function cloneCells(cells) {
+    return (cells || []).map((c) => ({
+      x: c.x,
+      y: c.y,
+      mass: c.mass,
+    }));
+  }
+
+  function cloneSegs(segs) {
+    return (segs || []).map((s) => ({ x: s.x, y: s.y }));
+  }
+
+  /** плавное догоняние сетевой позиции (без телепортов) */
+  function updateRemoteSmooth(dt) {
+    const k = Math.min(1, dt * 18);
+    for (const rp of voicePeers.values()) {
+      if (rp.dx == null) rp.dx = rp.x;
+      if (rp.dy == null) rp.dy = rp.y;
+      rp.dx += (rp.x - rp.dx) * k;
+      rp.dy += (rp.y - rp.dy) * k;
+
+      if (rp.form === 'worm' && rp.segs?.length) {
+        if (!rp.dSegs || rp.dSegs.length !== rp.segs.length) {
+          rp.dSegs = cloneSegs(rp.segs);
+        } else {
+          for (let i = 0; i < rp.segs.length; i++) {
+            rp.dSegs[i].x += (rp.segs[i].x - rp.dSegs[i].x) * k;
+            rp.dSegs[i].y += (rp.segs[i].y - rp.dSegs[i].y) * k;
+          }
+        }
+      } else if (rp.cells?.length) {
+        if (!rp.dCells || rp.dCells.length !== rp.cells.length) {
+          rp.dCells = cloneCells(rp.cells);
+        } else {
+          for (let i = 0; i < rp.cells.length; i++) {
+            rp.dCells[i].x += (rp.cells[i].x - rp.dCells[i].x) * k;
+            rp.dCells[i].y += (rp.cells[i].y - rp.dCells[i].y) * k;
+            rp.dCells[i].mass += (rp.cells[i].mass - rp.dCells[i].mass) * k;
+          }
+        }
+      }
+    }
+  }
+
   function spawnBots(n) {
     for (let i = 0; i < n; i++) {
       const isWorm = Math.random() < 0.45;
@@ -1673,12 +1717,16 @@ export function createGame(hooks = {}) {
     collisions();
     updateCamera(dt);
 
+    updateRemoteSmooth(dt);
+
     botSpawnCd = Math.max(0, botSpawnCd - dt);
-    const aliveBots = players.filter((p) => p.alive && !p.isPlayer).length;
-    // респавн ботов не чаще раза в ~1.2с — findSafeSpawn тяжёлый и дёргал миникарту
-    if (botSpawnCd <= 0 && aliveBots < (state.settings.bots | 0)) {
-      spawnBots(1);
-      botSpawnCd = 1.2;
+    if (!multiplayerSpawn) {
+      const aliveBots = players.filter((p) => p.alive && !p.isPlayer).length;
+      // респавн ботов не чаще раза в ~1.2с — findSafeSpawn тяжёлый и дёргал миникарту
+      if (botSpawnCd <= 0 && aliveBots < (state.settings.bots | 0)) {
+        spawnBots(1);
+        botSpawnCd = 1.2;
+      }
     }
 
     // prune dead
@@ -1713,11 +1761,26 @@ export function createGame(hooks = {}) {
     }
     if (!full) return;
 
-    const ranked = players
-      .filter((p) => p.alive)
-      .sort((a, b) => scoreOf(b) - scoreOf(a));
-    const myIdx = ranked.findIndex((p) => p.isPlayer);
-    const myRank = myIdx >= 0 ? myIdx + 1 : 0;
+    let ranked;
+    let myRank = 0;
+    if (multiplayerSpawn) {
+      // общий топ комнаты по синкнутому счёту (без локальных ботов)
+      const now = performance.now();
+      const rows = [];
+      if (me?.alive) rows.push({ name: me.name, score: scoreOf(me), me: true });
+      for (const [, rp] of voicePeers) {
+        if (!rp || rp.alive === false || now - rp.t > 4000) continue;
+        rows.push({ name: rp.name || 'Player', score: rp.score | 0, me: false });
+      }
+      ranked = rows.sort((a, b) => b.score - a.score);
+      myRank = ranked.findIndex((r) => r.me) + 1;
+    } else {
+      ranked = players
+        .filter((p) => p.alive)
+        .map((p) => ({ name: p.name, score: scoreOf(p), me: !!p.isPlayer }))
+        .sort((a, b) => b.score - a.score);
+      myRank = ranked.findIndex((r) => r.me) + 1;
+    }
     const visible = lbCollapsed ? ranked.slice(0, 3) : ranked;
     const lbTitle = document.querySelector('#leaderboard .lb-title');
     if (lbTitle) lbTitle.textContent = t('leaderboard');
@@ -1729,10 +1792,10 @@ export function createGame(hooks = {}) {
         .map((p, i) => {
           const rank = i + 1;
           const medal = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
-          return `<li class="${medal}${p.isPlayer ? ' me' : ''}">
+          return `<li class="${medal}${p.me ? ' me' : ''}">
             <span class="lb-rank">${rank}</span>
             <span class="lb-name">${p.name}</span>
-            <span class="lb-score">${scoreOf(p)}</span>
+            <span class="lb-score">${p.score}</span>
           </li>`;
         })
         .join('');
@@ -1972,12 +2035,13 @@ export function createGame(hooks = {}) {
       if (!rp || now - rp.t > 2500 || rp.alive === false) continue;
       if (rp.skinSrc) ensurePeerSkin(rp);
 
-      if (rp.form === 'worm' && rp.segs?.length) {
-        const rr = Math.max(8, (10 + Math.min(9, rp.segs.length * 0.12)) * z);
+      const segs = rp.dSegs?.length ? rp.dSegs : rp.segs;
+      if (rp.form === 'worm' && segs?.length) {
+        const rr = Math.max(8, (10 + Math.min(9, segs.length * 0.12)) * z);
         ctx.save();
         ctx.globalAlpha = 0.95;
-        for (let i = rp.segs.length - 1; i >= 0; i--) {
-          const seg = rp.segs[i];
+        for (let i = segs.length - 1; i >= 0; i--) {
+          const seg = segs[i];
           const s = toScreen(seg.x, seg.y);
           if (rp.skinImg) drawCircledImage(ctx, rp.skinImg, s.x, s.y, rr);
           else {
@@ -1987,7 +2051,7 @@ export function createGame(hooks = {}) {
             ctx.fill();
           }
         }
-        const headS = toScreen(rp.segs[0].x, rp.segs[0].y);
+        const headS = toScreen(segs[0].x, segs[0].y);
         ctx.strokeStyle = 'rgba(255,255,255,0.95)';
         ctx.lineWidth = Math.max(2, 2.5 * z);
         ctx.beginPath();
@@ -1998,12 +2062,14 @@ export function createGame(hooks = {}) {
         ctx.textAlign = 'center';
         ctx.fillText(rp.name || 'Player', headS.x, headS.y - rr - 8);
         ctx.restore();
-        drawPeerEdgeArrow(rp.segs[0].x, rp.segs[0].y, rp.name, w, h);
+        drawPeerEdgeArrow(segs[0].x, segs[0].y, rp.name, w, h);
         continue;
       }
-      const cells = rp.cells?.length
-        ? rp.cells
-        : [{ x: rp.x, y: rp.y, mass: Math.max(40, (rp.score || 80) * 0.6) }];
+      const cells = rp.dCells?.length
+        ? rp.dCells
+        : rp.cells?.length
+          ? rp.cells
+          : [{ x: rp.dx ?? rp.x, y: rp.dy ?? rp.y, mass: Math.max(40, (rp.score || 80) * 0.6) }];
       const sorted = [...cells].sort((a, b) => (a.mass || 0) - (b.mass || 0));
       for (const c of sorted) {
         const r = massToRadius(c.mass || 80) * z;
@@ -2313,9 +2379,15 @@ export function createGame(hooks = {}) {
       spawnFood(mobile ? 520 : 750, 0.12);
       spawnViruses(state.settings.quality === 'low' ? 8 : mobile ? 10 : 16);
       spawnPlayer();
-      if (multiplayerSpawn) toast('Друзья у центра карты — смотри оранжевые стрелки');
-      const botCount = opts.bots != null ? opts.bots : state.settings.bots | 0;
-      spawnBots(mobile ? Math.min(botCount, 8) : botCount);
+      if (multiplayerSpawn) {
+        toast('Комната: без ботов · 🎤 Вкл чтобы говорить · стрелки к друзьям');
+      }
+      const botCount = multiplayerSpawn
+        ? 0
+        : opts.bots != null
+          ? opts.bots
+          : state.settings.bots | 0;
+      spawnBots(mobile && !multiplayerSpawn ? Math.min(botCount, 8) : botCount);
 
       document.body.classList.toggle('mobile', mobile);
       document.getElementById('mobile-ui')?.classList.toggle('hidden', !mobile);
@@ -2409,9 +2481,13 @@ export function createGame(hooks = {}) {
     upsertVoicePeer(id, data) {
       if (!id) return;
       const prev = voicePeers.get(id);
+      const x = data.x ?? prev?.x ?? 0;
+      const y = data.y ?? prev?.y ?? 0;
       const next = {
-        x: data.x ?? prev?.x ?? 0,
-        y: data.y ?? prev?.y ?? 0,
+        x,
+        y,
+        dx: prev?.dx ?? x,
+        dy: prev?.dy ?? y,
         name: data.name || prev?.name || 'Player',
         micOn: !!data.micOn,
         level: clamp(data.level || 0, 0, 1),
@@ -2419,6 +2495,8 @@ export function createGame(hooks = {}) {
         color: data.color || prev?.color || '#9b5de5',
         cells: Array.isArray(data.cells) ? data.cells : prev?.cells || null,
         segs: Array.isArray(data.segs) ? data.segs : prev?.segs || null,
+        dCells: prev?.dCells || null,
+        dSegs: prev?.dSegs || null,
         score: data.score ?? prev?.score ?? 0,
         alive: data.alive !== false,
         skinId: data.skinId || prev?.skinId || '',
@@ -2427,6 +2505,13 @@ export function createGame(hooks = {}) {
         _skinKey: prev?._skinKey || '',
         t: performance.now(),
       };
+      // большой скачок (респавн) — без сглаживания
+      if (prev && Math.hypot(x - (prev.x || 0), y - (prev.y || 0)) > 420) {
+        next.dx = x;
+        next.dy = y;
+        next.dCells = next.cells ? cloneCells(next.cells) : null;
+        next.dSegs = next.segs ? cloneSegs(next.segs) : null;
+      }
       voicePeers.set(id, next);
       if (next.skinSrc && next.skinSrc !== next._skinKey) ensurePeerSkin(next);
     },
