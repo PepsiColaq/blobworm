@@ -2,8 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>BlobWorm</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -351,9 +353,11 @@
         <div id="joystick" class="mob-slot" data-slot="joy">
           <div id="joystick-base"><div id="joystick-knob"></div></div>
         </div>
-        <button type="button" id="mob-a" class="abil mob-slot" data-slot="a">A</button>
-        <button type="button" id="mob-b" class="abil mob-slot" data-slot="b">B</button>
-        <button type="button" id="mob-c" class="abil mob-slot" data-slot="c">C</button>
+        <div id="mob-abil-stack" class="stacked">
+          <button type="button" id="mob-a" class="abil" data-slot="a">Split</button>
+          <button type="button" id="mob-b" class="abil" data-slot="b">Eject</button>
+          <button type="button" id="mob-c" class="abil" data-slot="c">Pulse</button>
+        </div>
         <button type="button" id="mob-mic" class="abil mic-toggle mob-slot" data-slot="mic" title="Микрофон">🎤</button>
       </div>
 
@@ -362,6 +366,7 @@
         <button type="button" id="btn-eject">Eject</button>
         <button type="button" id="btn-action" title="Pulse — 4с защита большого куска, КД 25с">Pulse</button>
       </div>
+      <button type="button" id="btn-fs" title="Полный экран">⛶</button>
       <button type="button" id="btn-pause" title="Меню">☰</button>
       <div id="pause-overlay" class="hidden">
         <div class="menu-card">

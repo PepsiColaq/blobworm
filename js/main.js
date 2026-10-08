@@ -143,11 +143,11 @@ function readSettingsToState() {
 const LAYOUT_DEFAULTS = {
   map: { left: 2, top: 3, size: 110 },
   hud: { left: 18, top: 2, size: 100 },
-  joy: { left: 4, bottom: 4, size: 120 },
-  a: { left: 78, bottom: 22, size: 64 },
-  b: { left: 78, bottom: 12, size: 64 },
-  c: { left: 78, bottom: 2, size: 64 },
-  mic: { left: 42, bottom: 3, size: 72 },
+  joy: { left: 4, bottom: 6, size: 120 },
+  a: { left: 78, bottom: 40, size: 70 },
+  b: { left: 78, bottom: 24, size: 70 },
+  c: { left: 78, bottom: 8, size: 70 },
+  mic: { left: 42, bottom: 4, size: 68 },
 };
 
 let layoutDraft = null;
@@ -199,8 +199,20 @@ function placeHudStack() {
   stack.style.bottom = 'auto';
 }
 
+function abilityLayoutLooksBroken(layout) {
+  if (!layout?.a || !layout?.b || !layout?.c) return true;
+  const bottoms = [layout.a.bottom, layout.b.bottom, layout.c.bottom]
+    .map(Number)
+    .filter((n) => Number.isFinite(n))
+    .sort((x, y) => x - y);
+  if (bottoms.length < 3) return true;
+  // старые пресеты с шагом ~10% на телефоне наезжают
+  return bottoms[1] - bottoms[0] < 12 || bottoms[2] - bottoms[1] < 12;
+}
+
 function applyMobileLayout() {
   const layout = loadState().settings.mobileLayout;
+  const stack = document.getElementById('mob-abil-stack');
   const map = {
     joy: document.getElementById('joystick'),
     a: document.getElementById('mob-a'),
@@ -208,14 +220,35 @@ function applyMobileLayout() {
     c: document.getElementById('mob-c'),
     mic: document.getElementById('mob-mic'),
   };
+
+  // по умолчанию / битый layout — колонка с gap (не наезжают)
+  const useStack = !layout || abilityLayoutLooksBroken(layout);
+  stack?.classList.toggle('stacked', useStack);
+
   Object.entries(map).forEach(([key, el]) => {
     if (!el) return;
-    const pos = layout?.[key] || LAYOUT_DEFAULTS[key];
+    const pos = (!useStack && layout?.[key]) || LAYOUT_DEFAULTS[key];
+    if (key === 'a' || key === 'b' || key === 'c') {
+      if (useStack) {
+        el.style.left = '';
+        el.style.bottom = '';
+        el.style.right = '';
+        el.style.top = '';
+      } else if (pos && pos.left != null && pos.bottom != null) {
+        el.style.left = pos.left + '%';
+        el.style.bottom = pos.bottom + '%';
+        el.style.right = 'auto';
+        el.style.top = 'auto';
+      }
+      applySlotSize(el, key, pos?.size ?? LAYOUT_DEFAULTS[key]?.size);
+      return;
+    }
     if (pos && pos.left != null && pos.bottom != null) {
       el.style.left = pos.left + '%';
       el.style.bottom = pos.bottom + '%';
       el.style.right = 'auto';
       el.style.top = 'auto';
+      if (key === 'mic') el.style.transform = '';
     }
     applySlotSize(el, key, pos?.size ?? LAYOUT_DEFAULTS[key]?.size);
   });
@@ -233,6 +266,35 @@ function applyMobileLayout() {
     game.refreshMinimapLayout();
   }
   requestAnimationFrame(placeHudStack);
+}
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+async function toggleFullscreen() {
+  try {
+    if (isFullscreen()) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    } else {
+      const root = document.documentElement;
+      if (root.requestFullscreen) await root.requestFullscreen({ navigationUI: 'hide' });
+      else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+    }
+  } catch {
+    /* iOS Safari без поддержки — ок */
+  }
+  syncFullscreenBtn();
+}
+
+function syncFullscreenBtn() {
+  const btn = document.getElementById('btn-fs');
+  if (!btn) return;
+  const on = isFullscreen();
+  btn.textContent = on ? '⛶' : '⛶';
+  btn.title = on ? 'Выйти из полного экрана' : 'Полный экран';
+  btn.classList.toggle('on', on);
 }
 
 const blobEditor = initBlobEditor(cropModal);
@@ -497,6 +559,10 @@ async function startMatch({ bots, voice: useVoice, timed = false, endsAt } = {})
   applyMobileLayout();
   placeHudStack();
   startVoiceGameplayLoop();
+  // с телефона — сразу полный экран (убирает строку Chrome)
+  if (loadState().device === 'mobile' || matchMedia('(pointer: coarse)').matches) {
+    toggleFullscreen().catch(() => {});
+  }
   // микрофон в фоне — не ждём getUserMedia, чтобы не стопорить матч
   if (useVoice || loadState().settings.voiceChat) {
     voice
@@ -511,6 +577,7 @@ async function startMatch({ bots, voice: useVoice, timed = false, endsAt } = {})
   updateVoiceButtons();
   syncLocalVoiceVisual();
   applyI18n();
+  syncFullscreenBtn();
   setTimeout(() => {
     if (currentScreen === 'game') game.resume();
   }, 100);
@@ -1069,12 +1136,20 @@ function setupLayoutEditorDrag() {
 
 setupJoystick();
 setupLayoutEditorDrag();
+document.getElementById('btn-fs')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  toggleFullscreen();
+});
+document.addEventListener('fullscreenchange', syncFullscreenBtn);
+document.addEventListener('webkitfullscreenchange', syncFullscreenBtn);
 window.addEventListener('resize', () => {
   if (currentScreen === 'game') placeHudStack();
 });
 
 /* ——— Boot ——— */
 applyI18n();
+syncFullscreenBtn();
 const session = getSession();
 if (session) routeAfterAuth();
 else show('auth');

@@ -15,12 +15,17 @@
 html, body {
   margin: 0;
   height: 100%;
+  height: 100dvh;
+  width: 100%;
   font-family: "Segoe UI", system-ui, sans-serif;
   background: var(--bg);
   color: var(--ink);
   overflow: hidden;
   touch-action: none;
   user-select: none;
+  /* вырезы / чёлка / home indicator */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: 0; /* padding на body ломает canvas — отступы на HUD */
 }
 
 #menu-bg {
@@ -517,38 +522,65 @@ li.bronze .lb-rank { background: #e0a070; color: #4a2a10; }
   color: #0b6;
 }
 
-#btn-pause {
+#btn-pause,
+#btn-fs {
   position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: max(10px, env(safe-area-inset-top, 0px));
   border: 1px solid #ccc;
-  background: rgba(255,255,255,.9);
+  background: rgba(255,255,255,.92);
   border-radius: 8px;
   width: 40px;
   height: 36px;
   cursor: pointer;
-  z-index: 5;
+  z-index: 8;
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: auto;
+}
+#btn-pause {
+  left: 50%;
+  transform: translateX(-50%);
+}
+#btn-fs {
+  left: calc(50% + 28px);
+  transform: none;
+}
+#btn-fs.on,
+:fullscreen #btn-fs,
+:-webkit-full-screen #btn-fs {
+  background: #d8f5e9;
+  border-color: #1fa896;
+}
+body.mobile #btn-fs {
+  display: block;
+}
+/* на узком экране — справа от паузы, не под хром */
+@media (max-width: 520px) {
+  #btn-pause { left: calc(50% - 22px); }
+  #btn-fs { left: calc(50% + 22px); }
 }
 
 #touch-controls {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(14px, env(safe-area-inset-bottom, 0px));
   display: flex;
-  gap: 10px;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 14px;
   z-index: 5;
 }
 #touch-controls.hidden { display: none; }
 #touch-controls button {
-  width: 68px;
-  height: 68px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
   border: 2px solid #999;
-  background: rgba(255,255,255,.85);
+  background: rgba(255,255,255,.88);
   font-weight: 700;
   cursor: pointer;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 #pause-overlay, #death-overlay, #match-end-overlay {
@@ -646,8 +678,8 @@ body.mobile #hud-left-stack {
 #mobile-ui.hidden { display: none; }
 #joystick {
   position: absolute;
-  left: 4%;
-  bottom: 4%;
+  left: max(4%, env(safe-area-inset-left, 0px));
+  bottom: max(4%, env(safe-area-inset-bottom, 0px));
   pointer-events: auto;
   touch-action: none;
 }
@@ -678,21 +710,58 @@ body.mobile #hud-left-stack {
   touch-action: none;
   z-index: 7;
 }
-#mob-a { right: 4%; bottom: 22%; }
-#mob-b { right: 4%; bottom: 12%; }
-#mob-c { right: 4%; bottom: 2%; }
-#mob-mic { left: 42%; bottom: 3%; }
+
+/* колонка способностей — никогда не наезжают */
+#mob-abil-stack {
+  position: absolute;
+  right: max(10px, env(safe-area-inset-right, 0px));
+  bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  pointer-events: auto;
+  z-index: 7;
+  touch-action: none;
+}
+#mob-abil-stack.stacked #mob-a,
+#mob-abil-stack.stacked #mob-b,
+#mob-abil-stack.stacked #mob-c {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  top: auto;
+}
+#mob-abil-stack:not(.stacked) {
+  inset: 0;
+  right: auto;
+  bottom: auto;
+  display: block;
+  pointer-events: none;
+}
+#mob-abil-stack:not(.stacked) .abil {
+  position: absolute;
+  pointer-events: auto;
+}
+#mob-mic {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(10px, env(safe-area-inset-bottom, 0px));
+}
 
 .abil {
-  width: 64px;
-  height: 64px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
   border: 2px solid #888;
-  background: rgba(255,255,255,0.88);
+  background: rgba(255,255,255,0.9);
   font-weight: 700;
   font-size: 13px;
   touch-action: none;
+  flex-shrink: 0;
 }
+.abil.hidden { display: none !important; }
 .mic-toggle {
   width: 72px;
   height: 72px;
